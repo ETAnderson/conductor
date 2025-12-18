@@ -28,10 +28,17 @@ func main() {
 		_, _ = w.Write([]byte("ok\n"))
 	})
 
-	mux.Handle("/v1/debug/products:upsert", ingest.DebugUpsertHandler{
+	idemStore := ingest.NewMemoryIdempotencyStore(24 * time.Hour)
+
+	debugHandler := ingest.DebugUpsertHandler{
 		Processor:       proc,
 		Store:           store,
 		EnabledChannels: []string{"google"},
+	}
+
+	mux.Handle("/v1/debug/products:upsert", ingest.IdempotencyMiddleware{
+		Store: idemStore,
+		Next:  debugHandler,
 	})
 
 	server := &http.Server{
