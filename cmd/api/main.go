@@ -41,6 +41,15 @@ func main() {
 		Next:  debugHandler,
 	})
 
+	mux.Handle("/v1/debug/products:upsert-bulk", ingest.IdempotencyMiddleware{
+		Store: idemStore,
+		Next: ingest.DebugBulkUpsertHandler{
+			Processor:       proc,
+			Store:           store,
+			EnabledChannels: []string{"google"},
+		},
+	})
+
 	server := &http.Server{
 		Addr:              ":" + cfg.Port,
 		Handler:           mux,

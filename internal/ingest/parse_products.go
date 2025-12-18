@@ -194,3 +194,12 @@ func setToSortedSlice(set map[string]struct{}) []string {
 	sort.Strings(out)
 	return out
 }
+
+func ParseProductObjectAllowUnknown(line []byte) (domain.Product, map[string]struct{}, error) {
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(line, &obj); err != nil {
+		return domain.Product{}, nil, err
+	}
+
+	return parseSingleProduct(obj)
+}

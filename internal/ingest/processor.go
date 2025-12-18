@@ -39,6 +39,56 @@ func NewProcessor() Processor {
 	}
 }
 
+func (p Processor) ProcessProduct(prod domain.Product, enabledChannels []string, lookup PreviousHashLookup) (ProductProcessResult, bool, error) {
+	res := ProductProcessResult{
+		ProductKey: prod.ProductKey,
+	}
+
+	// Base validation
+	base := ValidateProductBase(prod)
+	if !base.IsValid() {
+		res.Disposition = domain.ProductDispositionRejected
+		res.Reason = "base_validation_failed"
+		res.Issues = append(res.Issues, base.Issues...)
+		return res, false, nil
+	}
+
+	// Channel control validation (only for enabled channels)
+	ch := ValidateChannelControls(prod, enabledChannels)
+	if !ch.IsValid() {
+		res.Disposition = domain.ProductDispositionRejected
+		res.Reason = "channel_validation_failed"
+		res.Issues = append(res.Issues, ch.Issues...)
+		return res, false, nil
+	}
+
+	// Hash normalized
+	hash, err := p.Hasher.HashNormalized(prod)
+	if err != nil {
+		return ProductProcessResult{}, false, err
+	}
+	res.Hash = hash
+
+	// Lookup previous hash
+	prev := ""
+	if lookup != nil {
+		prevHash, ok, err := lookup(prod.ProductKey)
+		if err != nil {
+			return ProductProcessResult{}, false, err
+		}
+		if ok {
+			prev = prevHash
+		}
+	}
+
+	decision := ComputeDisposition(prev, hash)
+	res.Disposition = decision.Disposition
+	res.Reason = decision.Reason
+
+	// valid = true
+	return res, true, nil
+}
+
 func (p Processor) ProcessProducts(products []domain.Product, enabledChannels []string, lookup PreviousHashLookup) (ProcessOutput, error) {
 	out := ProcessOutput{
 		Summary: ProcessSummary{
@@ -48,58 +98,17 @@ func (p Processor) ProcessProducts(products []domain.Product, enabledChannels []
 	}
 
 	for _, prod := range products {
-		res := ProductProcessResult{
-			ProductKey: prod.ProductKey,
-		}
-
-		// Base validation
-		base := ValidateProductBase(prod)
-		if !base.IsValid() {
-			res.Disposition = domain.ProductDispositionRejected
-			res.Reason = "base_validation_failed"
-			res.Issues = append(res.Issues, base.Issues...)
-
-			out.Products = append(out.Products, res)
-			out.Summary.Rejected++
-			continue
-		}
-
-		// Channel control validation (only for enabled channels)
-		ch := ValidateChannelControls(prod, enabledChannels)
-		if !ch.IsValid() {
-			res.Disposition = domain.ProductDispositionRejected
-			res.Reason = "channel_validation_failed"
-			res.Issues = append(res.Issues, ch.Issues...)
-
-			out.Products = append(out.Products, res)
-			out.Summary.Rejected++
-			continue
-		}
-
-		// Hash normalized
-		hash, err := p.Hasher.HashNormalized(prod)
+		res, valid, err := p.ProcessProduct(prod, enabledChannels, lookup)
 		if err != nil {
 			return ProcessOutput{}, err
 		}
-		res.Hash = hash
-
-		// Lookup previous hash (optional external state)
-		prev := ""
-		if lookup != nil {
-			prevHash, ok, err := lookup(prod.ProductKey)
-			if err != nil {
-				return ProcessOutput{}, err
-			}
-			if ok {
-				prev = prevHash
-			}
-		}
-
-		decision := ComputeDisposition(prev, hash)
-		res.Disposition = decision.Disposition
-		res.Reason = decision.Reason
 
 		out.Products = append(out.Products, res)
+
+		if !valid {
+			out.Summary.Rejected++
+			continue
+		}
 
 		out.Summary.Valid++
 
