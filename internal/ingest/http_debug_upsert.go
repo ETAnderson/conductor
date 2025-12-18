@@ -2,6 +2,7 @@ package ingest
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 
 	"github.com/ETAnderson/conductor/internal/domain"
@@ -17,10 +18,11 @@ type DebugUpsertHandler struct {
 }
 
 type RunResponse struct {
-	RunID         string           `json:"run_id"`
-	Status        domain.RunStatus `json:"status"`
-	PushTriggered bool             `json:"push_triggered"`
-	Result        ProcessOutput    `json:"result"`
+	RunID         string            `json:"run_id"`
+	Status        domain.RunStatus  `json:"status"`
+	PushTriggered bool              `json:"push_triggered"`
+	Warnings      UnknownKeyWarning `json:"warnings,omitempty"`
+	Result        ProcessOutput     `json:"result"`
 }
 
 func (h DebugUpsertHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -38,10 +40,17 @@ func (h DebugUpsertHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var products []domain.Product
-	dec := json.NewDecoder(r.Body)
-	dec.DisallowUnknownFields() // strict for debug endpoint
-	if err := dec.Decode(&products); err != nil {
+	bodyBytes, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{
+			"error":   "read_failed",
+			"message": err.Error(),
+		})
+		return
+	}
+
+	parsed, err := ParseProductsAllowUnknown(bodyBytes)
+	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]any{
 			"error":   "invalid_json",
 			"message": err.Error(),
@@ -49,7 +58,7 @@ func (h DebugUpsertHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	out, err := h.Processor.ProcessProducts(products, h.EnabledChannels, h.Store.Get)
+	out, err := h.Processor.ProcessProducts(parsed.Products, h.EnabledChannels, h.Store.Get)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{
 			"error":   "processing_failed",
@@ -83,6 +92,7 @@ func (h DebugUpsertHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		RunID:         runID,
 		Status:        status,
 		PushTriggered: pushTriggered,
+		Warnings:      parsed.Warnings,
 		Result:        out,
 	}
 
