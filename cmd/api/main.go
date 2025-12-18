@@ -8,16 +8,21 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/ETAnderson/conductor/internal/api/handlers"
+	"github.com/ETAnderson/conductor/internal/api/middleware"
 	"github.com/ETAnderson/conductor/internal/config"
 	"github.com/ETAnderson/conductor/internal/ingest"
 	"github.com/ETAnderson/conductor/internal/logging"
+	"github.com/ETAnderson/conductor/internal/state"
 )
 
 func main() {
 	cfg := config.Load()
 	logger := logging.NewStdLogger("api-service ")
 
-	store := ingest.NewMemoryHashStore()
+	tenantID := uint64(1)
+
+	store := state.NewMemoryStore()
 	proc := ingest.NewProcessor()
 
 	mux := http.NewServeMux()
@@ -28,26 +33,30 @@ func main() {
 		_, _ = w.Write([]byte("ok\n"))
 	})
 
-	idemStore := ingest.NewMemoryIdempotencyStore(24 * time.Hour)
-
-	debugHandler := ingest.DebugUpsertHandler{
+	debugUpsert := handlers.DebugUpsertHandler{
 		Processor:       proc,
 		Store:           store,
+		TenantID:        tenantID,
 		EnabledChannels: []string{"google"},
 	}
 
-	mux.Handle("/v1/debug/products:upsert", ingest.IdempotencyMiddleware{
-		Store: idemStore,
-		Next:  debugHandler,
+	debugBulk := handlers.DebugBulkUpsertHandler{
+		Processor:       proc,
+		Store:           store,
+		TenantID:        tenantID,
+		EnabledChannels: []string{"google"},
+	}
+
+	mux.Handle("/v1/debug/products:upsert", middleware.IdempotencyMiddleware{
+		Store:    store,
+		TenantID: tenantID,
+		Next:     debugUpsert,
 	})
 
-	mux.Handle("/v1/debug/products:upsert-bulk", ingest.IdempotencyMiddleware{
-		Store: idemStore,
-		Next: ingest.DebugBulkUpsertHandler{
-			Processor:       proc,
-			Store:           store,
-			EnabledChannels: []string{"google"},
-		},
+	mux.Handle("/v1/debug/products:upsert-bulk", middleware.IdempotencyMiddleware{
+		Store:    store,
+		TenantID: tenantID,
+		Next:     debugBulk,
 	})
 
 	server := &http.Server{

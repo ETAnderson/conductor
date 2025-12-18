@@ -203,3 +203,7 @@ func ParseProductObjectAllowUnknown(line []byte) (domain.Product, map[string]str
 
 	return parseSingleProduct(obj)
 }
+
+func SortedUnknownKeys(set map[string]struct{}) []string {
+	return setToSortedSlice(set)
+}
