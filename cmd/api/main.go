@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/ETAnderson/conductor/internal/config"
+	"github.com/ETAnderson/conductor/internal/ingest"
 	"github.com/ETAnderson/conductor/internal/logging"
 )
 
@@ -16,11 +17,21 @@ func main() {
 	cfg := config.Load()
 	logger := logging.NewStdLogger("api-service ")
 
+	store := ingest.NewMemoryHashStore()
+	proc := ingest.NewProcessor()
+
 	mux := http.NewServeMux()
+
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok\n"))
+	})
+
+	mux.Handle("/v1/debug/products:upsert", ingest.DebugUpsertHandler{
+		Processor:       proc,
+		Store:           store,
+		EnabledChannels: []string{"google"},
 	})
 
 	server := &http.Server{
