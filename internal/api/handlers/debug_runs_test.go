@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ETAnderson/conductor/internal/api/tenantctx"
 	"github.com/ETAnderson/conductor/internal/domain"
 	"github.com/ETAnderson/conductor/internal/ingest"
 	"github.com/ETAnderson/conductor/internal/state"
@@ -45,8 +46,9 @@ func TestDebugRuns_ListAndDetail(t *testing.T) {
 	})
 
 	// List endpoint
-	listH := DebugRunsHandler{Store: st, TenantID: tenantID}
+	listH := DebugRunsHandler{Store: st}
 	req := httptest.NewRequest(http.MethodGet, "/v1/debug/runs?limit=10", nil)
+	req = req.WithContext(tenantctx.WithTenantID(req.Context(), tenantID))
 	rec := httptest.NewRecorder()
 	listH.ServeHTTP(rec, req)
 
@@ -65,8 +67,9 @@ func TestDebugRuns_ListAndDetail(t *testing.T) {
 	}
 
 	// Detail endpoint
-	detailH := DebugRunDetailHandler{Store: st, TenantID: tenantID}
+	detailH := DebugRunDetailHandler{Store: st}
 	req2 := httptest.NewRequest(http.MethodGet, "/v1/debug/runs/"+runID, nil)
+	req2 = req2.WithContext(tenantctx.WithTenantID(req2.Context(), tenantID))
 	rec2 := httptest.NewRecorder()
 	detailH.ServeHTTP(rec2, req2)
 

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/ETAnderson/conductor/internal/api/tenantctx"
 	"github.com/ETAnderson/conductor/internal/domain"
 	"github.com/ETAnderson/conductor/internal/ingest"
 	"github.com/ETAnderson/conductor/internal/state"
@@ -29,6 +30,8 @@ type RunResponse struct {
 }
 
 func (h DebugUpsertHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	tenantID := tenantctx.TenantID(r.Context())
+
 	if r.Method != http.MethodPost {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
@@ -70,7 +73,7 @@ func (h DebugUpsertHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	lookup := func(productKey string) (string, bool, error) {
-		return h.Store.GetProductHash(r.Context(), h.TenantID, productKey)
+		return h.Store.GetProductHash(r.Context(), tenantID, productKey)
 	}
 
 	out, err := h.Processor.ProcessProducts(parsed.Products, h.EnabledChannels, lookup)
@@ -90,7 +93,7 @@ func (h DebugUpsertHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 		switch pr.Disposition {
 		case domain.ProductDispositionEnqueued, domain.ProductDispositionUnchanged:
-			if err := h.Store.UpsertProductHash(r.Context(), h.TenantID, pr.ProductKey, pr.Hash); err != nil {
+			if err := h.Store.UpsertProductHash(r.Context(), tenantID, pr.ProductKey, pr.Hash); err != nil {
 				writeJSON(w, http.StatusInternalServerError, map[string]any{
 					"error":   "persist_product_state_failed",
 					"message": err.Error(),
@@ -113,7 +116,7 @@ func (h DebugUpsertHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Persist run + run_products (do NOT ignore errors)
 	runRec := state.RunRecord{
 		RunID:         runID,
-		TenantID:      h.TenantID,
+		TenantID:      tenantID,
 		FeedID:        nil,
 		Status:        string(status),
 		PushTriggered: pushTriggered,

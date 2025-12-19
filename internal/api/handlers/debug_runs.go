@@ -5,15 +5,17 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/ETAnderson/conductor/internal/api/tenantctx"
 	"github.com/ETAnderson/conductor/internal/state"
 )
 
 type DebugRunsHandler struct {
-	Store    state.Store
-	TenantID uint64
+	Store state.Store
 }
 
 func (h DebugRunsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	tenantID := tenantctx.TenantID(r.Context())
+
 	if r.Method != http.MethodGet {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
@@ -32,7 +34,7 @@ func (h DebugRunsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		limit = 200
 	}
 
-	runs, err := h.Store.ListRuns(r.Context(), h.TenantID, limit)
+	runs, err := h.Store.ListRuns(r.Context(), tenantID, limit)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{
 			"error":   "list_runs_failed",
@@ -47,11 +49,12 @@ func (h DebugRunsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 type DebugRunDetailHandler struct {
-	Store    state.Store
-	TenantID uint64
+	Store state.Store
 }
 
 func (h DebugRunDetailHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	tenantID := tenantctx.TenantID(r.Context())
+
 	if r.Method != http.MethodGet {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
@@ -68,7 +71,7 @@ func (h DebugRunDetailHandler) ServeHTTP(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	run, ok, err := h.Store.GetRun(r.Context(), h.TenantID, runID)
+	run, ok, err := h.Store.GetRun(r.Context(), tenantID, runID)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{
 			"error":   "get_run_failed",

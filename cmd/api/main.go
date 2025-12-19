@@ -97,30 +97,25 @@ func main() {
 	debugBulk := handlers.DebugBulkUpsertHandler{
 		Processor:       proc,
 		Store:           store,
-		TenantID:        tenantID,
 		EnabledChannels: []string{"google"},
 	}
 
 	mux.Handle("/v1/debug/products:upsert", middleware.IdempotencyMiddleware{
-		Store:    store,
-		TenantID: tenantID,
-		Next:     debugUpsert,
+		Store: store,
+		Next:  debugUpsert,
 	})
 
 	mux.Handle("/v1/debug/products:upsert-bulk", middleware.IdempotencyMiddleware{
-		Store:    store,
-		TenantID: tenantID,
-		Next:     debugBulk,
+		Store: store,
+		Next:  debugBulk,
 	})
 
 	mux.Handle("/v1/debug/runs", handlers.DebugRunsHandler{
-		Store:    store,
-		TenantID: tenantID,
+		Store: store,
 	})
 
 	mux.Handle("/v1/debug/runs/", handlers.DebugRunDetailHandler{
-		Store:    store,
-		TenantID: tenantID,
+		Store: store,
 	})
 
 	server := &http.Server{

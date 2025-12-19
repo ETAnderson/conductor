@@ -2,86 +2,116 @@ package middleware
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
+	"io"
 	"net/http"
+	"net/http/httptest"
+	"strings"
 	"time"
 
+	"github.com/ETAnderson/conductor/internal/api/tenantctx"
 	"github.com/ETAnderson/conductor/internal/state"
 )
 
+// HTTP header used for idempotent requests
 const IdempotencyHeaderKey = "Idempotency-Key"
 
 type IdempotencyMiddleware struct {
-	Store    state.Store
-	TenantID uint64
-	Next     http.Handler
+	Store state.Store
+	Next  http.Handler
 }
 
 func (m IdempotencyMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if m.Store == nil || m.Next == nil {
+	if m.Next == nil || m.Store == nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
 
-	key := r.Header.Get(IdempotencyHeaderKey)
-	if key == "" {
+	switch r.Method {
+	case http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete:
+		// continue
+	default:
 		m.Next.ServeHTTP(w, r)
 		return
 	}
 
-	endpoint := r.URL.Path
-	keyHash := state.HashIdempotencyKey(key)
+	idemKey := strings.TrimSpace(r.Header.Get(IdempotencyHeaderKey))
+	if idemKey == "" {
+		m.Next.ServeHTTP(w, r)
+		return
+	}
 
-	rec, ok, err := m.Store.GetIdempotency(r.Context(), m.TenantID, endpoint, keyHash)
+	endpoint := strings.TrimSpace(r.URL.Path)
+	if endpoint == "" {
+		endpoint = "/"
+	}
+
+	tenantID := tenantctx.TenantID(r.Context())
+	keyHash := sha256Hex(idemKey)
+
+	// Cache hit?
+	rec, ok, err := m.Store.GetIdempotency(r.Context(), tenantID, endpoint, keyHash)
 	if err != nil {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`{"error":"idempotency_lookup_failed"}`))
 		return
 	}
 
 	if ok {
+		// Return cached response (body only)
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		w.WriteHeader(rec.StatusCode)
+
+		status := rec.StatusCode
+		if status == 0 {
+			status = http.StatusOK
+		}
+
+		w.WriteHeader(status)
 		_, _ = w.Write(rec.BodyJSON)
 		return
 	}
 
-	cw := newCaptureWriter(w)
-	m.Next.ServeHTTP(cw, r)
+	// Ensure downstream can read the body (we may have already consumed it if we add future logic)
+	if r.Body != nil {
+		reqBody, _ := io.ReadAll(r.Body)
+		_ = r.Body.Close()
+		r.Body = io.NopCloser(bytes.NewReader(reqBody))
+	}
 
-	_ = m.Store.PutIdempotency(r.Context(), m.TenantID, endpoint, keyHash, state.IdempotencyRecord{
-		StatusCode: cw.statusCode(),
-		BodyJSON:   cw.bodyBytes(),
+	// Record downstream response
+	rr := httptest.NewRecorder()
+	m.Next.ServeHTTP(rr, r)
+
+	// Copy recorded response to the real writer
+	for k, vals := range rr.Header() {
+		for _, v := range vals {
+			w.Header().Add(k, v)
+		}
+	}
+
+	status := rr.Code
+	if status == 0 {
+		status = http.StatusOK
+	}
+
+	w.WriteHeader(status)
+	_, _ = w.Write(rr.Body.Bytes())
+
+	// Cache body (and status) only
+	respRec := state.IdempotencyRecord{
+		StatusCode: status,
+		BodyJSON:   rr.Body.Bytes(),
 		CreatedAt:  time.Now().UTC(),
 		ExpiresAt:  time.Now().UTC().Add(24 * time.Hour),
-	})
-}
-
-type captureWriter struct {
-	w      http.ResponseWriter
-	status int
-	buf    bytes.Buffer
-}
-
-func newCaptureWriter(w http.ResponseWriter) *captureWriter {
-	return &captureWriter{w: w}
-}
-
-func (c *captureWriter) Header() http.Header { return c.w.Header() }
-
-func (c *captureWriter) WriteHeader(code int) {
-	c.status = code
-	c.w.WriteHeader(code)
-}
-
-func (c *captureWriter) Write(b []byte) (int, error) {
-	c.buf.Write(b)
-	return c.w.Write(b)
-}
-
-func (c *captureWriter) statusCode() int {
-	if c.status == 0 {
-		return http.StatusOK
 	}
-	return c.status
+
+	// If caching fails, do not fail the request; response has already been written.
+	_ = m.Store.PutIdempotency(r.Context(), tenantID, endpoint, keyHash, respRec)
 }
 
-func (c *captureWriter) bodyBytes() []byte { return c.buf.Bytes() }
+func sha256Hex(s string) string {
+	sum := sha256.Sum256([]byte(s))
+	return hex.EncodeToString(sum[:])
+}
