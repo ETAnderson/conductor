@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/ETAnderson/conductor/internal/api/auth"
 	"github.com/ETAnderson/conductor/internal/api/handlers"
 	"github.com/ETAnderson/conductor/internal/api/middleware"
 	"github.com/ETAnderson/conductor/internal/config"
@@ -30,8 +31,6 @@ func main() {
 		cfg.StateBackend = "memory"
 	}
 
-	tenantID := uint64(1)
-
 	proc := ingest.NewProcessor()
 
 	factoryRes, err := state.NewStore(context.Background(), state.FactoryConfig{
@@ -41,6 +40,17 @@ func main() {
 	if err != nil {
 		logger.Printf("state store init failed: %v", err)
 		os.Exit(1)
+	}
+
+	// Load RS256 public key for JWT verification.
+	// In dev, allow missing key so you can keep using X-Tenant-ID + debug flows.
+	pub, err := auth.LoadRSAPublicKeyFromEnv("JWT_PUBLIC_KEY_PEM")
+	if err != nil {
+		if cfg.Env != "dev" {
+			logger.Printf("JWT public key load failed: %v", err)
+			os.Exit(1)
+		}
+		pub = nil
 	}
 
 	store := factoryRes.Store
@@ -55,10 +65,11 @@ func main() {
 		}
 	}
 
+	// Dev bootstrap: ensure debug tenant exists so FK inserts succeed for runs/idempotency.
 	if factoryRes.DB != nil && cfg.Env == "dev" {
 		_, err := factoryRes.DB.Exec(`INSERT INTO tenants (tenant_id, name)
-			VALUES (1, 'debug')
-			ON DUPLICATE KEY UPDATE name=VALUES(name)`)
+VALUES (1, 'debug')
+ON DUPLICATE KEY UPDATE name=VALUES(name)`)
 		if err != nil {
 			logger.Printf("bootstrap tenant failed: %v", err)
 			os.Exit(1)
@@ -77,7 +88,12 @@ func main() {
 			defer cancel()
 			if err := factoryRes.DB.PingContext(ctx); err != nil {
 				w.WriteHeader(http.StatusServiceUnavailable)
-				_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "backend": cfg.StateBackend, "db_ok": false, "error": err.Error()})
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"ok":      false,
+					"backend": cfg.StateBackend,
+					"db_ok":   false,
+					"error":   err.Error(),
+				})
 				return
 			}
 			resp["db_ok"] = true
@@ -87,10 +103,10 @@ func main() {
 		_ = json.NewEncoder(w).Encode(resp)
 	})
 
+	// Handlers (tenant is resolved from request context now; no TenantID fields here)
 	debugUpsert := handlers.DebugUpsertHandler{
 		Processor:       proc,
 		Store:           store,
-		TenantID:        tenantID,
 		EnabledChannels: []string{"google"},
 	}
 
@@ -118,9 +134,25 @@ func main() {
 		Store: store,
 	})
 
+	// Wrap handler chain (order matters!)
+	var root http.Handler = mux
+
+	// Tenant header (dev override / default tenant)
+	root = middleware.TenantMiddleware{
+		Env:  cfg.Env,
+		Next: root,
+	}
+
+	// Auth (RS256 JWT)
+	root = middleware.AuthMiddleware{
+		Env:       cfg.Env,
+		PublicKey: pub,
+		Next:      root,
+	}
+
 	server := &http.Server{
 		Addr:              ":" + cfg.Port,
-		Handler:           mux,
+		Handler:           root, // IMPORTANT: use root, not mux
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
