@@ -34,21 +34,38 @@ func (h DebugUpsertHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if h.Store == nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{
+			"error":   "misconfigured",
+			"message": "handler dependencies not configured",
+		})
+		return
+	}
+
 	runID, err := ingest.NewRunID()
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "run_id_failed", "message": err.Error()})
+		writeJSON(w, http.StatusInternalServerError, map[string]any{
+			"error":   "run_id_failed",
+			"message": err.Error(),
+		})
 		return
 	}
 
 	bodyBytes, err := io.ReadAll(r.Body)
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "read_failed", "message": err.Error()})
+		writeJSON(w, http.StatusBadRequest, map[string]any{
+			"error":   "read_failed",
+			"message": err.Error(),
+		})
 		return
 	}
 
 	parsed, err := ingest.ParseProductsAllowUnknown(bodyBytes)
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_json", "message": err.Error()})
+		writeJSON(w, http.StatusBadRequest, map[string]any{
+			"error":   "invalid_json",
+			"message": err.Error(),
+		})
 		return
 	}
 
@@ -58,18 +75,29 @@ func (h DebugUpsertHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	out, err := h.Processor.ProcessProducts(parsed.Products, h.EnabledChannels, lookup)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "processing_failed", "message": err.Error()})
+		writeJSON(w, http.StatusInternalServerError, map[string]any{
+			"error":   "processing_failed",
+			"message": err.Error(),
+		})
 		return
 	}
 
-	// Persist canonical state for valid products
+	// Persist canonical state for relevant dispositions
 	for _, pr := range out.Products {
 		if pr.Hash == "" {
 			continue
 		}
+
 		switch pr.Disposition {
 		case domain.ProductDispositionEnqueued, domain.ProductDispositionUnchanged:
-			_ = h.Store.UpsertProductHash(r.Context(), h.TenantID, pr.ProductKey, pr.Hash)
+			if err := h.Store.UpsertProductHash(r.Context(), h.TenantID, pr.ProductKey, pr.Hash); err != nil {
+				writeJSON(w, http.StatusInternalServerError, map[string]any{
+					"error":   "persist_product_state_failed",
+					"message": err.Error(),
+					"product": pr.ProductKey,
+				})
+				return
+			}
 		}
 	}
 
@@ -82,8 +110,8 @@ func (h DebugUpsertHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		status = domain.RunStatusHasChanges
 	}
 
-	// Persist run + run_products (for reporting)
-	_ = h.Store.InsertRun(r.Context(), state.RunRecord{
+	// Persist run + run_products (do NOT ignore errors)
+	runRec := state.RunRecord{
 		RunID:         runID,
 		TenantID:      h.TenantID,
 		FeedID:        nil,
@@ -96,8 +124,25 @@ func (h DebugUpsertHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		Enqueued:      out.Summary.Enqueued,
 		Warnings:      parsed.Warnings,
 		CreatedAt:     time.Now().UTC(),
-	})
-	_ = h.Store.InsertRunProducts(r.Context(), runID, out.Products)
+	}
+
+	if err := h.Store.InsertRun(r.Context(), runRec); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{
+			"error":   "persist_run_failed",
+			"message": err.Error(),
+			"run_id":  runID,
+		})
+		return
+	}
+
+	if err := h.Store.InsertRunProducts(r.Context(), runID, out.Products); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{
+			"error":   "persist_run_products_failed",
+			"message": err.Error(),
+			"run_id":  runID,
+		})
+		return
+	}
 
 	resp := RunResponse{
 		RunID:         runID,
@@ -107,11 +152,8 @@ func (h DebugUpsertHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		Result:        out,
 	}
 
-	writeJSON(w, http.StatusOK, resp)
-}
-
-func writeJSON(w http.ResponseWriter, status int, body any) {
+	// Always encode response last so we only return success if persistence succeeded
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(body)
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(resp)
 }

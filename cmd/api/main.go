@@ -39,7 +39,7 @@ func main() {
 		MySQLDSN: cfg.MySQLDSN,
 	})
 	if err != nil {
-		logger.Printf("state store init failed", "err", err)
+		logger.Printf("state store init failed: %v", err)
 		os.Exit(1)
 	}
 
@@ -50,7 +50,17 @@ func main() {
 		defer cancel()
 
 		if err := migrate.ApplyDir(ctx, factoryRes.DB, "migrations"); err != nil {
-			logger.Printf("migrations failed", "err", err)
+			logger.Printf("migrations failed: %v", err)
+			os.Exit(1)
+		}
+	}
+
+	if factoryRes.DB != nil {
+		_, err := factoryRes.DB.Exec(`INSERT INTO tenants (tenant_id, name)
+			VALUES (1, 'debug')
+			ON DUPLICATE KEY UPDATE name=VALUES(name)`)
+		if err != nil {
+			logger.Printf("bootstrap tenant failed: %v", err)
 			os.Exit(1)
 		}
 	}
@@ -101,6 +111,16 @@ func main() {
 		Store:    store,
 		TenantID: tenantID,
 		Next:     debugBulk,
+	})
+
+	mux.Handle("/v1/debug/runs", handlers.DebugRunsHandler{
+		Store:    store,
+		TenantID: tenantID,
+	})
+
+	mux.Handle("/v1/debug/runs/", handlers.DebugRunDetailHandler{
+		Store:    store,
+		TenantID: tenantID,
 	})
 
 	server := &http.Server{

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"compress/gzip"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -29,15 +30,29 @@ func (h DebugBulkUpsertHandler) ServeHTTP(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	if h.Store == nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{
+			"error":   "misconfigured",
+			"message": "handler dependencies not configured",
+		})
+		return
+	}
+
 	runID, err := ingest.NewRunID()
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "run_id_failed", "message": err.Error()})
+		writeJSON(w, http.StatusInternalServerError, map[string]any{
+			"error":   "run_id_failed",
+			"message": err.Error(),
+		})
 		return
 	}
 
 	reader, err := wrapMaybeGzip(r.Body, r.Header.Get("Content-Encoding"))
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_encoding", "message": err.Error()})
+		writeJSON(w, http.StatusBadRequest, map[string]any{
+			"error":   "invalid_encoding",
+			"message": err.Error(),
+		})
 		return
 	}
 	defer reader.Close()
@@ -85,7 +100,10 @@ func (h DebugBulkUpsertHandler) ServeHTTP(w http.ResponseWriter, r *http.Request
 
 		res, valid, err := h.Processor.ProcessProduct(prod, h.EnabledChannels, lookup)
 		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "processing_failed", "message": err.Error()})
+			writeJSON(w, http.StatusInternalServerError, map[string]any{
+				"error":   "processing_failed",
+				"message": err.Error(),
+			})
 			return
 		}
 
@@ -102,18 +120,36 @@ func (h DebugBulkUpsertHandler) ServeHTTP(w http.ResponseWriter, r *http.Request
 		case domain.ProductDispositionUnchanged:
 			out.Summary.Unchanged++
 			if res.Hash != "" {
-				_ = h.Store.UpsertProductHash(r.Context(), h.TenantID, res.ProductKey, res.Hash)
+				if err := h.Store.UpsertProductHash(r.Context(), h.TenantID, res.ProductKey, res.Hash); err != nil {
+					writeJSON(w, http.StatusInternalServerError, map[string]any{
+						"error":   "persist_product_state_failed",
+						"message": err.Error(),
+						"product": res.ProductKey,
+					})
+					return
+				}
 			}
+
 		case domain.ProductDispositionEnqueued:
 			out.Summary.Enqueued++
 			if res.Hash != "" {
-				_ = h.Store.UpsertProductHash(r.Context(), h.TenantID, res.ProductKey, res.Hash)
+				if err := h.Store.UpsertProductHash(r.Context(), h.TenantID, res.ProductKey, res.Hash); err != nil {
+					writeJSON(w, http.StatusInternalServerError, map[string]any{
+						"error":   "persist_product_state_failed",
+						"message": err.Error(),
+						"product": res.ProductKey,
+					})
+					return
+				}
 			}
 		}
 	}
 
 	if err := sc.Err(); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "read_failed", "message": err.Error()})
+		writeJSON(w, http.StatusBadRequest, map[string]any{
+			"error":   "read_failed",
+			"message": err.Error(),
+		})
 		return
 	}
 
@@ -127,7 +163,8 @@ func (h DebugBulkUpsertHandler) ServeHTTP(w http.ResponseWriter, r *http.Request
 		status = domain.RunStatusHasChanges
 	}
 
-	_ = h.Store.InsertRun(r.Context(), state.RunRecord{
+	// Persist run + run_products (do NOT ignore errors)
+	runRec := state.RunRecord{
 		RunID:         runID,
 		TenantID:      h.TenantID,
 		FeedID:        nil,
@@ -140,8 +177,25 @@ func (h DebugBulkUpsertHandler) ServeHTTP(w http.ResponseWriter, r *http.Request
 		Enqueued:      out.Summary.Enqueued,
 		Warnings:      warnings,
 		CreatedAt:     time.Now().UTC(),
-	})
-	_ = h.Store.InsertRunProducts(r.Context(), runID, out.Products)
+	}
+
+	if err := h.Store.InsertRun(r.Context(), runRec); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{
+			"error":   "persist_run_failed",
+			"message": err.Error(),
+			"run_id":  runID,
+		})
+		return
+	}
+
+	if err := h.Store.InsertRunProducts(r.Context(), runID, out.Products); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{
+			"error":   "persist_run_products_failed",
+			"message": err.Error(),
+			"run_id":  runID,
+		})
+		return
+	}
 
 	resp := RunResponse{
 		RunID:         runID,
@@ -161,7 +215,7 @@ func wrapMaybeGzip(body io.ReadCloser, contentEncoding string) (io.ReadCloser, e
 	}
 
 	if enc != "gzip" {
-		return nil, io.ErrUnexpectedEOF
+		return nil, fmt.Errorf("unsupported Content-Encoding: %s", enc)
 	}
 
 	gr, err := gzip.NewReader(body)

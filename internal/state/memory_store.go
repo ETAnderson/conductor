@@ -131,3 +131,63 @@ func WarningsToJSON(w ingest.UnknownKeyWarning) []byte {
 	b, _ := json.Marshal(ingest.UnknownKeyWarning{UnknownKeys: keys})
 	return b
 }
+
+func (s *MemoryStore) ListRuns(ctx context.Context, tenantID uint64, limit int) ([]RunRecord, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	out := make([]RunRecord, 0, 64)
+	for _, r := range s.runs {
+		if r.TenantID != tenantID {
+			continue
+		}
+		out = append(out, r)
+	}
+
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].CreatedAt.After(out[j].CreatedAt)
+	})
+
+	if limit <= 0 || limit > len(out) {
+		return out, nil
+	}
+
+	return out[:limit], nil
+}
+
+func (s *MemoryStore) GetRun(ctx context.Context, tenantID uint64, runID string) (RunRecord, bool, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	r, ok := s.runs[runID]
+	if !ok {
+		return RunRecord{}, false, nil
+	}
+	if r.TenantID != tenantID {
+		return RunRecord{}, false, nil
+	}
+	return r, true, nil
+}
+
+func (s *MemoryStore) ListRunProducts(ctx context.Context, runID string, limit int) ([]ingest.ProductProcessResult, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	items, ok := s.runProducts[runID]
+	if !ok {
+		return []ingest.ProductProcessResult{}, nil
+	}
+
+	out := make([]ingest.ProductProcessResult, len(items))
+	copy(out, items)
+
+	// stable ordering for predictability
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].ProductKey < out[j].ProductKey
+	})
+
+	if limit <= 0 || limit > len(out) {
+		return out, nil
+	}
+	return out[:limit], nil
+}

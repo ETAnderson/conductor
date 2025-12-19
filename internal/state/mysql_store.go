@@ -133,3 +133,174 @@ func (s *MySQLStore) PutIdempotency(ctx context.Context, tenantID uint64, endpoi
 	)
 	return err
 }
+
+func (s *MySQLStore) ListRuns(ctx context.Context, tenantID uint64, limit int) ([]RunRecord, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 200 {
+		limit = 200
+	}
+
+	rows, err := s.db.QueryContext(ctx, `
+SELECT run_id, tenant_id, feed_id, status, push_triggered,
+       received, valid, rejected, unchanged, enqueued,
+       warnings_json, created_at
+FROM runs
+WHERE tenant_id = ?
+ORDER BY created_at DESC
+LIMIT ?`, tenantID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make([]RunRecord, 0, limit)
+
+	for rows.Next() {
+		var r RunRecord
+		var feedID sql.NullInt64
+		var push int
+		var warningsBytes []byte
+		var created time.Time
+
+		err := rows.Scan(
+			&r.RunID,
+			&r.TenantID,
+			&feedID,
+			&r.Status,
+			&push,
+			&r.Received,
+			&r.Valid,
+			&r.Rejected,
+			&r.Unchanged,
+			&r.Enqueued,
+			&warningsBytes,
+			&created,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		if feedID.Valid {
+			v := uint64(feedID.Int64)
+			r.FeedID = &v
+		}
+
+		r.PushTriggered = push == 1
+		r.CreatedAt = created.UTC()
+
+		if len(warningsBytes) > 0 {
+			_ = json.Unmarshal(warningsBytes, &r.Warnings)
+		}
+
+		out = append(out, r)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return out, nil
+}
+
+func (s *MySQLStore) GetRun(ctx context.Context, tenantID uint64, runID string) (RunRecord, bool, error) {
+	var r RunRecord
+	var feedID sql.NullInt64
+	var push int
+	var warningsBytes []byte
+	var created time.Time
+
+	err := s.db.QueryRowContext(ctx, `
+SELECT run_id, tenant_id, feed_id, status, push_triggered,
+       received, valid, rejected, unchanged, enqueued,
+       warnings_json, created_at
+FROM runs
+WHERE tenant_id = ? AND run_id = ?`, tenantID, runID).
+		Scan(
+			&r.RunID,
+			&r.TenantID,
+			&feedID,
+			&r.Status,
+			&push,
+			&r.Received,
+			&r.Valid,
+			&r.Rejected,
+			&r.Unchanged,
+			&r.Enqueued,
+			&warningsBytes,
+			&created,
+		)
+
+	if err == sql.ErrNoRows {
+		return RunRecord{}, false, nil
+	}
+	if err != nil {
+		return RunRecord{}, false, err
+	}
+
+	if feedID.Valid {
+		v := uint64(feedID.Int64)
+		r.FeedID = &v
+	}
+	r.PushTriggered = push == 1
+	r.CreatedAt = created.UTC()
+
+	if len(warningsBytes) > 0 {
+		_ = json.Unmarshal(warningsBytes, &r.Warnings)
+	}
+
+	return r, true, nil
+}
+
+func (s *MySQLStore) ListRunProducts(ctx context.Context, runID string, limit int) ([]ingest.ProductProcessResult, error) {
+	if limit <= 0 {
+		limit = 200
+	}
+	if limit > 2000 {
+		limit = 2000
+	}
+
+	rows, err := s.db.QueryContext(ctx, `
+SELECT product_key, disposition, reason, normalized_hash, issues_json
+FROM run_products
+WHERE run_id = ?
+ORDER BY product_key ASC
+LIMIT ?`, runID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make([]ingest.ProductProcessResult, 0, limit)
+
+	for rows.Next() {
+		var p ingest.ProductProcessResult
+		var reason sql.NullString
+		var hash sql.NullString
+		var issuesBytes []byte
+
+		err := rows.Scan(&p.ProductKey, &p.Disposition, &reason, &hash, &issuesBytes)
+		if err != nil {
+			return nil, err
+		}
+
+		if reason.Valid {
+			p.Reason = reason.String
+		}
+		if hash.Valid {
+			p.Hash = hash.String
+		}
+		if len(issuesBytes) > 0 {
+			_ = json.Unmarshal(issuesBytes, &p.Issues)
+		}
+
+		out = append(out, p)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return out, nil
+}

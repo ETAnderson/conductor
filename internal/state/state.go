@@ -36,11 +36,16 @@ type Store interface {
 	GetProductHash(ctx context.Context, tenantID uint64, productKey string) (hash string, ok bool, err error)
 	UpsertProductHash(ctx context.Context, tenantID uint64, productKey string, hash string) error
 
-	// Runs
+	// Runs (write)
 	InsertRun(ctx context.Context, run RunRecord) error
 	InsertRunProducts(ctx context.Context, runID string, products []ingest.ProductProcessResult) error
 
 	// Idempotency cache
 	GetIdempotency(ctx context.Context, tenantID uint64, endpoint string, idemKeyHash string) (IdempotencyRecord, bool, error)
 	PutIdempotency(ctx context.Context, tenantID uint64, endpoint string, idemKeyHash string, rec IdempotencyRecord) error
+
+	// Runs (read/debug)
+	ListRuns(ctx context.Context, tenantID uint64, limit int) ([]RunRecord, error)
+	GetRun(ctx context.Context, tenantID uint64, runID string) (RunRecord, bool, error)
+	ListRunProducts(ctx context.Context, runID string, limit int) ([]ingest.ProductProcessResult, error)
 }
