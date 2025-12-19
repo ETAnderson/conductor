@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"os"
 	"os/signal"
@@ -13,24 +14,67 @@ import (
 	"github.com/ETAnderson/conductor/internal/config"
 	"github.com/ETAnderson/conductor/internal/ingest"
 	"github.com/ETAnderson/conductor/internal/logging"
+	"github.com/ETAnderson/conductor/internal/migrate"
 	"github.com/ETAnderson/conductor/internal/state"
 )
 
 func main() {
 	cfg := config.Load()
+
 	logger := logging.NewStdLogger("api-service ")
+
+	logger.Printf("ENV=%q PORT=%q STATE_BACKEND=%q RUN_MIGRATIONS=%v DB_DSN_set=%v",
+		cfg.Env, cfg.Port, cfg.StateBackend, cfg.RunMigrations, cfg.MySQLDSN != "")
+
+	if cfg.StateBackend == "" {
+		cfg.StateBackend = "memory"
+	}
 
 	tenantID := uint64(1)
 
-	store := state.NewMemoryStore()
 	proc := ingest.NewProcessor()
+
+	factoryRes, err := state.NewStore(context.Background(), state.FactoryConfig{
+		Backend:  cfg.StateBackend,
+		MySQLDSN: cfg.MySQLDSN,
+	})
+	if err != nil {
+		logger.Printf("state store init failed", "err", err)
+		os.Exit(1)
+	}
+
+	store := factoryRes.Store
+
+	if cfg.RunMigrations && factoryRes.DB != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		if err := migrate.ApplyDir(ctx, factoryRes.DB, "migrations"); err != nil {
+			logger.Printf("migrations failed", "err", err)
+			os.Exit(1)
+		}
+	}
 
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+
+		resp := map[string]any{"ok": true, "backend": cfg.StateBackend}
+
+		if factoryRes.DB != nil {
+			ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+			defer cancel()
+			if err := factoryRes.DB.PingContext(ctx); err != nil {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "backend": cfg.StateBackend, "db_ok": false, "error": err.Error()})
+				return
+			}
+			resp["db_ok"] = true
+		}
+
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("ok\n"))
+		_ = json.NewEncoder(w).Encode(resp)
 	})
 
 	debugUpsert := handlers.DebugUpsertHandler{
