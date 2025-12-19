@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -17,8 +18,10 @@ func TestDebugRuns_ListAndDetail(t *testing.T) {
 	tenantID := uint64(1)
 
 	// Seed a run
-	runID := "run_test_1"
-	_ = st.InsertRun(nil, state.RunRecord{
+	const runID = "run_test_1"
+	ctx := context.Background()
+
+	_ = st.InsertRun(ctx, state.RunRecord{
 		RunID:         runID,
 		TenantID:      tenantID,
 		Status:        string(domain.RunStatusHasChanges),
@@ -32,7 +35,7 @@ func TestDebugRuns_ListAndDetail(t *testing.T) {
 		CreatedAt:     time.Now().UTC(),
 	})
 
-	_ = st.InsertRunProducts(nil, runID, []ingest.ProductProcessResult{
+	_ = st.InsertRunProducts(ctx, runID, []ingest.ProductProcessResult{
 		{
 			ProductKey:  "sku1",
 			Disposition: domain.ProductDispositionEnqueued,

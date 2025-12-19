@@ -55,7 +55,7 @@ func main() {
 		}
 	}
 
-	if factoryRes.DB != nil {
+	if factoryRes.DB != nil && cfg.Env == "dev" {
 		_, err := factoryRes.DB.Exec(`INSERT INTO tenants (tenant_id, name)
 			VALUES (1, 'debug')
 			ON DUPLICATE KEY UPDATE name=VALUES(name)`)
