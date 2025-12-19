@@ -24,6 +24,11 @@ type RunRecord struct {
 	CreatedAt time.Time
 }
 
+type RunClaim struct {
+	RunID    string
+	TenantID uint64
+}
+
 type IdempotencyRecord struct {
 	StatusCode int
 	BodyJSON   []byte
@@ -48,4 +53,9 @@ type Store interface {
 	ListRuns(ctx context.Context, tenantID uint64, limit int) ([]RunRecord, error)
 	GetRun(ctx context.Context, tenantID uint64, runID string) (RunRecord, bool, error)
 	ListRunProducts(ctx context.Context, runID string, limit int) ([]ingest.ProductProcessResult, error)
+
+	// Worker queue (runs)
+	ClaimRuns(ctx context.Context, limit int) ([]RunClaim, error)
+	CompleteRun(ctx context.Context, tenantID uint64, runID string) error
+	FailRun(ctx context.Context, tenantID uint64, runID string, message string) error
 }
