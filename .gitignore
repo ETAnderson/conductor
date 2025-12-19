@@ -12,3 +12,11 @@
 .DS_Store
 .idea/
 .vscode/
+
+# Secrets / keys
+secrets/
+*.pem
+
+# Env files 
+.env
+.env.*
