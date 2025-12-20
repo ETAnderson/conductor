@@ -14,6 +14,7 @@ type Runner struct {
 	ClaimTTL    time.Duration
 	MaxPerClaim int
 	ProcessFn   func(ctx context.Context, job Job) error
+	Executor    RunExecutor
 }
 
 type Job struct {
@@ -73,8 +74,15 @@ func (r Runner) tick(ctx context.Context) error {
 
 		jobCtx := WithRunID(WithTenant(ctx, c.TenantID), c.RunID)
 
-		if err := r.ProcessFn(jobCtx, job); err != nil {
-			_ = r.Store.FailRun(jobCtx, c.TenantID, c.RunID, err.Error())
+		var execErr error
+		if r.Executor != nil {
+			execErr = r.Executor.Execute(jobCtx, c.RunID, c.TenantID)
+		} else {
+			execErr = r.ProcessFn(jobCtx, job)
+		}
+
+		if execErr != nil {
+			_ = r.Store.FailRun(jobCtx, c.TenantID, c.RunID, execErr.Error())
 			continue
 		}
 
