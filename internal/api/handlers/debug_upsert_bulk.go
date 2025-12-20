@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ETAnderson/conductor/internal/api/tenantctx"
 	"github.com/ETAnderson/conductor/internal/domain"
 	"github.com/ETAnderson/conductor/internal/ingest"
 	"github.com/ETAnderson/conductor/internal/state"
@@ -19,12 +20,12 @@ type DebugBulkUpsertHandler struct {
 	Processor ingest.Processor
 	Store     state.Store
 
-	TenantID uint64
-
 	EnabledChannels []string
 }
 
 func (h DebugBulkUpsertHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	tenantID := tenantctx.TenantID(r.Context())
+
 	if r.Method != http.MethodPost {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
@@ -69,7 +70,7 @@ func (h DebugBulkUpsertHandler) ServeHTTP(w http.ResponseWriter, r *http.Request
 	sc.Buffer(buf, 10*1024*1024)
 
 	lookup := func(productKey string) (string, bool, error) {
-		return h.Store.GetProductHash(r.Context(), h.TenantID, productKey)
+		return h.Store.GetProductHash(r.Context(), tenantID, productKey)
 	}
 
 	for sc.Scan() {
@@ -120,7 +121,7 @@ func (h DebugBulkUpsertHandler) ServeHTTP(w http.ResponseWriter, r *http.Request
 		case domain.ProductDispositionUnchanged:
 			out.Summary.Unchanged++
 			if res.Hash != "" {
-				if err := h.Store.UpsertProductHash(r.Context(), h.TenantID, res.ProductKey, res.Hash); err != nil {
+				if err := h.Store.UpsertProductHash(r.Context(), tenantID, res.ProductKey, res.Hash); err != nil {
 					writeJSON(w, http.StatusInternalServerError, map[string]any{
 						"error":   "persist_product_state_failed",
 						"message": err.Error(),
@@ -133,7 +134,7 @@ func (h DebugBulkUpsertHandler) ServeHTTP(w http.ResponseWriter, r *http.Request
 		case domain.ProductDispositionEnqueued:
 			out.Summary.Enqueued++
 			if res.Hash != "" {
-				if err := h.Store.UpsertProductHash(r.Context(), h.TenantID, res.ProductKey, res.Hash); err != nil {
+				if err := h.Store.UpsertProductHash(r.Context(), tenantID, res.ProductKey, res.Hash); err != nil {
 					writeJSON(w, http.StatusInternalServerError, map[string]any{
 						"error":   "persist_product_state_failed",
 						"message": err.Error(),
@@ -166,7 +167,7 @@ func (h DebugBulkUpsertHandler) ServeHTTP(w http.ResponseWriter, r *http.Request
 	// Persist run + run_products (do NOT ignore errors)
 	runRec := state.RunRecord{
 		RunID:         runID,
-		TenantID:      h.TenantID,
+		TenantID:      tenantID,
 		FeedID:        nil,
 		Status:        string(status),
 		PushTriggered: pushTriggered,
