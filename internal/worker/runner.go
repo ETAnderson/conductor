@@ -71,12 +71,14 @@ func (r Runner) tick(ctx context.Context) error {
 			TenantID: c.TenantID,
 		}
 
-		if err := r.ProcessFn(ctx, job); err != nil {
-			_ = r.Store.FailRun(ctx, c.TenantID, c.RunID, err.Error())
+		jobCtx := WithRunID(WithTenant(ctx, c.TenantID), c.RunID)
+
+		if err := r.ProcessFn(jobCtx, job); err != nil {
+			_ = r.Store.FailRun(jobCtx, c.TenantID, c.RunID, err.Error())
 			continue
 		}
 
-		_ = r.Store.CompleteRun(ctx, c.TenantID, c.RunID)
+		_ = r.Store.CompleteRun(jobCtx, c.TenantID, c.RunID)
 	}
 
 	return nil
