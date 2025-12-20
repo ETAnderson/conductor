@@ -85,7 +85,15 @@ func (h DebugUpsertHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Persist canonical state for relevant dispositions
+	// Build a lookup from product_key -> normalized payload so we can persist canonical JSON docs
+	// for valid products (enqueued/unchanged) without storing rejected payloads.
+	payloadByKey := make(map[string]any, len(parsed.Products))
+	for _, p := range parsed.Products {
+		// Assumes parsed.Products items have ProductKey
+		payloadByKey[p.ProductKey] = p
+	}
+
+	// Persist canonical product state for relevant dispositions
 	for _, pr := range out.Products {
 		if pr.Hash == "" {
 			continue
@@ -100,6 +108,31 @@ func (h DebugUpsertHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 					"product": pr.ProductKey,
 				})
 				return
+			}
+
+			// Persist normalized canonical product doc (JSON) for valid products.
+			// This enables channel mappers (google v0) to read full product fields.
+			if payload, ok := payloadByKey[pr.ProductKey]; ok {
+				b, err := json.Marshal(payload)
+				if err != nil {
+					writeJSON(w, http.StatusInternalServerError, map[string]any{
+						"error":   "persist_product_doc_failed",
+						"message": "failed to serialize product doc",
+						"product": pr.ProductKey,
+					})
+					return
+				}
+
+				if err := h.Store.UpsertProductDoc(r.Context(), tenantID, pr.ProductKey, state.ProductDocRecord{
+					ProductJSON: b,
+				}); err != nil {
+					writeJSON(w, http.StatusInternalServerError, map[string]any{
+						"error":   "persist_product_doc_failed",
+						"message": err.Error(),
+						"product": pr.ProductKey,
+					})
+					return
+				}
 			}
 		}
 	}

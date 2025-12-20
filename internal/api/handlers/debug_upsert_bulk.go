@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"compress/gzip"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -129,6 +130,28 @@ func (h DebugBulkUpsertHandler) ServeHTTP(w http.ResponseWriter, r *http.Request
 					})
 					return
 				}
+
+				// Persist normalized canonical product doc (JSON) for valid products.
+				b, err := json.Marshal(prod)
+				if err != nil {
+					writeJSON(w, http.StatusInternalServerError, map[string]any{
+						"error":   "persist_product_doc_failed",
+						"message": "failed to serialize product doc",
+						"product": res.ProductKey,
+					})
+					return
+				}
+
+				if err := h.Store.UpsertProductDoc(r.Context(), tenantID, res.ProductKey, state.ProductDocRecord{
+					ProductJSON: b,
+				}); err != nil {
+					writeJSON(w, http.StatusInternalServerError, map[string]any{
+						"error":   "persist_product_doc_failed",
+						"message": err.Error(),
+						"product": res.ProductKey,
+					})
+					return
+				}
 			}
 
 		case domain.ProductDispositionEnqueued:
@@ -137,6 +160,28 @@ func (h DebugBulkUpsertHandler) ServeHTTP(w http.ResponseWriter, r *http.Request
 				if err := h.Store.UpsertProductHash(r.Context(), tenantID, res.ProductKey, res.Hash); err != nil {
 					writeJSON(w, http.StatusInternalServerError, map[string]any{
 						"error":   "persist_product_state_failed",
+						"message": err.Error(),
+						"product": res.ProductKey,
+					})
+					return
+				}
+
+				// Persist normalized canonical product doc (JSON) for valid products.
+				b, err := json.Marshal(prod)
+				if err != nil {
+					writeJSON(w, http.StatusInternalServerError, map[string]any{
+						"error":   "persist_product_doc_failed",
+						"message": "failed to serialize product doc",
+						"product": res.ProductKey,
+					})
+					return
+				}
+
+				if err := h.Store.UpsertProductDoc(r.Context(), tenantID, res.ProductKey, state.ProductDocRecord{
+					ProductJSON: b,
+				}); err != nil {
+					writeJSON(w, http.StatusInternalServerError, map[string]any{
+						"error":   "persist_product_doc_failed",
 						"message": err.Error(),
 						"product": res.ProductKey,
 					})
