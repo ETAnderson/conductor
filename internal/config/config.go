@@ -24,6 +24,7 @@ func Load() Config {
 	}
 	return cfg
 }
+
 func getenv(key string, fallback string) string {
 	v := os.Getenv(key)
 	if v == "" {
