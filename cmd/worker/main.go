@@ -12,6 +12,9 @@ import (
 	"github.com/ETAnderson/conductor/internal/logging"
 	"github.com/ETAnderson/conductor/internal/state"
 	"github.com/ETAnderson/conductor/internal/worker"
+
+	"github.com/ETAnderson/conductor/internal/channels"
+	"github.com/ETAnderson/conductor/internal/channels/google"
 )
 
 func main() {
@@ -36,10 +39,14 @@ func main() {
 
 	store := factoryRes.Store
 
+	reg := channels.NewRegistry(
+		google.Channel{Store: store},
+	)
+
 	exec := execute.Executor{
-		Store: store,
-		// OnExecute is intentionally nil for now (no external pushes yet).
-		// The executor still validates run ownership and loads enqueued products.
+		Store:           store,
+		Registry:        reg,
+		EnabledChannels: []string{"google"},
 	}
 
 	r := worker.Runner{
