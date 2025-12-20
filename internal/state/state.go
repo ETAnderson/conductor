@@ -36,6 +36,12 @@ type IdempotencyRecord struct {
 	CreatedAt  time.Time
 }
 
+type ProductDocRecord struct {
+	ProductJSON []byte
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}
+
 type Store interface {
 	// Canonical product state
 	GetProductHash(ctx context.Context, tenantID uint64, productKey string) (hash string, ok bool, err error)
@@ -58,4 +64,8 @@ type Store interface {
 	ClaimRuns(ctx context.Context, limit int) ([]RunClaim, error)
 	CompleteRun(ctx context.Context, tenantID uint64, runID string) error
 	FailRun(ctx context.Context, tenantID uint64, runID string, message string) error
+
+	// Canonical product docs (normalized JSON)
+	GetProductDoc(ctx context.Context, tenantID uint64, productKey string) (ProductDocRecord, bool, error)
+	UpsertProductDoc(ctx context.Context, tenantID uint64, productKey string, rec ProductDocRecord) error
 }

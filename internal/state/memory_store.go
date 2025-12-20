@@ -16,6 +16,7 @@ type MemoryStore struct {
 	mu sync.RWMutex
 
 	productHash map[uint64]map[string]string
+	productDocs map[uint64]map[string]ProductDocRecord // tenant -> product_key -> doc
 
 	runs        map[string]RunRecord
 	runProducts map[string][]ingest.ProductProcessResult
@@ -26,6 +27,7 @@ type MemoryStore struct {
 func NewMemoryStore() *MemoryStore {
 	return &MemoryStore{
 		productHash: make(map[uint64]map[string]string),
+		productDocs: make(map[uint64]map[string]ProductDocRecord),
 		runs:        make(map[string]RunRecord),
 		runProducts: make(map[string][]ingest.ProductProcessResult),
 		idem:        make(map[uint64]map[string]map[string]IdempotencyRecord),
