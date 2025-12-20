@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/ETAnderson/conductor/internal/channels"
 	"github.com/ETAnderson/conductor/internal/domain"
 	"github.com/ETAnderson/conductor/internal/ingest"
 	"github.com/ETAnderson/conductor/internal/state"
@@ -21,6 +22,13 @@ type Executor struct {
 	// It receives the run record plus ONLY the enqueued products for this run.
 	// If nil, execution is a no-op (but still validates tenant/run ownership).
 	OnExecute func(ctx context.Context, run state.RunRecord, enqueued []ingest.ProductProcessResult) error
+
+	Registry        channels.Registry
+	EnabledChannels []string
+
+	// OnChannelResult is a seam for logging/persistence later.
+	// Called once per channel Build attempt.
+	OnChannelResult func(ctx context.Context, run state.RunRecord, result channels.BuildResult) error
 }
 
 var ErrRunNotFound = errors.New("run not found")
@@ -61,6 +69,32 @@ func (e Executor) Execute(ctx context.Context, runID string, tenantID uint64) er
 	for _, p := range products {
 		if p.Disposition == domain.ProductDispositionEnqueued {
 			enqueued = append(enqueued, p)
+		}
+	}
+
+	refs := make([]channels.ProductRef, 0, len(enqueued))
+	for _, p := range enqueued {
+		refs = append(refs, channels.ProductRef{
+			ProductKey: p.ProductKey,
+			Hash:       p.Hash,
+		})
+	}
+
+	for _, name := range e.EnabledChannels {
+		ch, ok := e.Registry.Get(name)
+		if !ok {
+			continue
+		}
+
+		res, err := ch.Build(ctx, tenantID, refs)
+		if err != nil {
+			return err
+		}
+
+		if e.OnChannelResult != nil {
+			if err := e.OnChannelResult(ctx, run, res); err != nil {
+				return err
+			}
 		}
 	}
 
