@@ -54,6 +54,7 @@ func main() {
 	}
 
 	store := factoryRes.Store
+	logger.Printf("store_impl=%T", store)
 
 	if cfg.RunMigrations && factoryRes.DB != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -129,8 +130,7 @@ ON DUPLICATE KEY UPDATE name=VALUES(name)`)
 	mux.Handle("/v1/debug/runs", handlers.DebugRunsHandler{
 		Store: store,
 	})
-
-	mux.Handle("/v1/debug/runs/", handlers.DebugRunDetailHandler{
+	mux.Handle("/v1/debug/runs/", handlers.DebugRunsHandler{
 		Store: store,
 	})
 
@@ -152,7 +152,7 @@ ON DUPLICATE KEY UPDATE name=VALUES(name)`)
 
 	server := &http.Server{
 		Addr:              ":" + cfg.Port,
-		Handler:           root, // IMPORTANT: use root, not mux
+		Handler:           root,
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 

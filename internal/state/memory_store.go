@@ -21,16 +21,21 @@ type MemoryStore struct {
 	runs        map[string]RunRecord
 	runProducts map[string][]ingest.ProductProcessResult
 
+	runChannelResults map[string][]RunChannelResultRecord          // run_id -> results
+	runChannelItems   map[string]map[string][]RunChannelItemRecord // run_id -> channel -> items
+
 	idem map[uint64]map[string]map[string]IdempotencyRecord // tenant -> endpoint -> keyhash -> record
 }
 
 func NewMemoryStore() *MemoryStore {
 	return &MemoryStore{
-		productHash: make(map[uint64]map[string]string),
-		productDocs: make(map[uint64]map[string]ProductDocRecord),
-		runs:        make(map[string]RunRecord),
-		runProducts: make(map[string][]ingest.ProductProcessResult),
-		idem:        make(map[uint64]map[string]map[string]IdempotencyRecord),
+		productHash:       make(map[uint64]map[string]string),
+		productDocs:       make(map[uint64]map[string]ProductDocRecord),
+		runs:              make(map[string]RunRecord),
+		runProducts:       make(map[string][]ingest.ProductProcessResult),
+		runChannelResults: make(map[string][]RunChannelResultRecord),
+		runChannelItems:   make(map[string]map[string][]RunChannelItemRecord),
+		idem:              make(map[uint64]map[string]map[string]IdempotencyRecord),
 	}
 }
 

@@ -66,9 +66,9 @@ func TestDebugRuns_ListAndDetail(t *testing.T) {
 		t.Fatalf("unexpected list response: %#v", listResp.Items)
 	}
 
-	// Detail endpoint
-	detailH := DebugRunDetailHandler{Store: st}
-	req2 := httptest.NewRequest(http.MethodGet, "/v1/debug/runs/"+runID, nil)
+	// Detail endpoint (DebugRunsHandler handles both list + detail now)
+	detailH := DebugRunsHandler{Store: st}
+	req2 := httptest.NewRequest(http.MethodGet, "/v1/debug/runs/"+runID+"?limit=1000", nil)
 	req2 = req2.WithContext(tenantctx.WithTenantID(req2.Context(), tenantID))
 	rec2 := httptest.NewRecorder()
 	detailH.ServeHTTP(rec2, req2)

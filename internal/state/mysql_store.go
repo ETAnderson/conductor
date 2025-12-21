@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
+
 	"time"
 
 	"github.com/ETAnderson/conductor/internal/ingest"
@@ -207,34 +209,44 @@ LIMIT ?`, tenantID, limit)
 func (s *MySQLStore) GetRun(ctx context.Context, tenantID uint64, runID string) (RunRecord, bool, error) {
 	var r RunRecord
 	var feedID sql.NullInt64
-	var push int
-	var warningsBytes []byte
-	var created time.Time
+	var warningsJSON []byte
 
 	err := s.db.QueryRowContext(ctx, `
-SELECT run_id, tenant_id, feed_id, status, push_triggered,
-       received, valid, rejected, unchanged, enqueued,
-       warnings_json, created_at
+SELECT
+  run_id,
+  tenant_id,
+  feed_id,
+  status,
+  push_triggered,
+  received,
+  valid,
+  rejected,
+  unchanged,
+  enqueued,
+  warnings_json,
+  created_at
 FROM runs
-WHERE tenant_id = ? AND run_id = ?`, tenantID, runID).
-		Scan(
-			&r.RunID,
-			&r.TenantID,
-			&feedID,
-			&r.Status,
-			&push,
-			&r.Received,
-			&r.Valid,
-			&r.Rejected,
-			&r.Unchanged,
-			&r.Enqueued,
-			&warningsBytes,
-			&created,
-		)
+WHERE run_id = ? AND tenant_id = ?
+LIMIT 1
+`, runID, tenantID).Scan(
+		&r.RunID,
+		&r.TenantID,
+		&feedID,
+		&r.Status,
+		&r.PushTriggered,
+		&r.Received,
+		&r.Valid,
+		&r.Rejected,
+		&r.Unchanged,
+		&r.Enqueued,
+		&warningsJSON,
+		&r.CreatedAt,
+	)
 
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return RunRecord{}, false, nil
 	}
+
 	if err != nil {
 		return RunRecord{}, false, err
 	}
@@ -243,11 +255,9 @@ WHERE tenant_id = ? AND run_id = ?`, tenantID, runID).
 		v := uint64(feedID.Int64)
 		r.FeedID = &v
 	}
-	r.PushTriggered = push == 1
-	r.CreatedAt = created.UTC()
 
-	if len(warningsBytes) > 0 {
-		_ = json.Unmarshal(warningsBytes, &r.Warnings)
+	if len(warningsJSON) > 0 {
+		_ = json.Unmarshal(warningsJSON, &r.Warnings)
 	}
 
 	return r, true, nil

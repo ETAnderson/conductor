@@ -68,4 +68,30 @@ type Store interface {
 	// Canonical product docs (normalized JSON)
 	GetProductDoc(ctx context.Context, tenantID uint64, productKey string) (ProductDocRecord, bool, error)
 	UpsertProductDoc(ctx context.Context, tenantID uint64, productKey string, rec ProductDocRecord) error
+
+	// Channel results (write)
+	InsertRunChannelResult(ctx context.Context, rec RunChannelResultRecord) error
+	InsertRunChannelItems(ctx context.Context, runID string, channel string, items []RunChannelItemRecord) error
+
+	// Channel results (read/debug)
+	ListRunChannelResults(ctx context.Context, tenantID uint64, runID string) ([]RunChannelResultRecord, error)
+	ListRunChannelItems(ctx context.Context, runID string, channel string, limit int) ([]RunChannelItemRecord, error)
+}
+
+type RunChannelResultRecord struct {
+	RunID     string
+	TenantID  uint64
+	Channel   string
+	Attempt   int
+	OkCount   int
+	ErrCount  int
+	CreatedAt time.Time
+}
+
+type RunChannelItemRecord struct {
+	RunID      string
+	Channel    string
+	ProductKey string
+	Status     string
+	Message    string
 }

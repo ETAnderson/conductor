@@ -47,6 +47,34 @@ func main() {
 		Store:           store,
 		Registry:        reg,
 		EnabledChannels: []string{"google"},
+		OnChannelResult: func(ctx context.Context, run state.RunRecord, res channels.BuildResult) error {
+			rec := state.RunChannelResultRecord{
+				RunID:     run.RunID,
+				TenantID:  run.TenantID,
+				Channel:   res.Channel,
+				Attempt:   res.Attempt,
+				OkCount:   res.OkCount,
+				ErrCount:  res.ErrCount,
+				CreatedAt: time.Now().UTC(),
+			}
+
+			if err := store.InsertRunChannelResult(ctx, rec); err != nil {
+				return err
+			}
+
+			items := make([]state.RunChannelItemRecord, 0, len(res.Items))
+			for _, it := range res.Items {
+				items = append(items, state.RunChannelItemRecord{
+					RunID:      run.RunID,
+					Channel:    res.Channel,
+					ProductKey: it.ProductKey,
+					Status:     it.Status,
+					Message:    it.Message,
+				})
+			}
+
+			return store.InsertRunChannelItems(ctx, run.RunID, res.Channel, items)
+		},
 	}
 
 	r := worker.Runner{
