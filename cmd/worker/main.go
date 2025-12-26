@@ -18,7 +18,9 @@ import (
 )
 
 func main() {
+	config.LoadDotEnv()
 	cfg := config.Load()
+
 	logger := logging.NewStdLogger("worker-service ")
 
 	logger.Printf("ENV=%q STATE_BACKEND=%q DB_DSN_set=%v",

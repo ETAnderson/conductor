@@ -17,9 +17,10 @@ type Claims struct {
 	jwt.RegisteredClaims
 }
 
-// LoadRSAPublicKeyFromEnv reads a PEM public key from an env var.
-// It supports either a normal multi-line PEM, or a single-line PEM with \n escapes.
-func LoadRSAPublicKeyFromEnv(envKey string) (*rsa.PublicKey, error) {
+// LoadRSAPublicKeyFromEnvPEM reads a PEM public key from an env var.
+// Supports either a normal multi-line PEM, or a single-line PEM with \n escapes.
+// Use this only if you store the PEM *contents* in env (not a file path).
+func LoadRSAPublicKeyFromEnvPEM(envKey string) (*rsa.PublicKey, error) {
 	raw := strings.TrimSpace(os.Getenv(envKey))
 	if raw == "" {
 		return nil, fmt.Errorf("%s is not set", envKey)
@@ -34,6 +35,46 @@ func LoadRSAPublicKeyFromEnv(envKey string) (*rsa.PublicKey, error) {
 	}
 
 	return pub, nil
+}
+
+// LoadRSAPublicKeyFromPathEnv reads a PEM public key from a file path stored in an env var.
+func LoadRSAPublicKeyFromPathEnv(envKey string) (*rsa.PublicKey, error) {
+	path := strings.TrimSpace(os.Getenv(envKey))
+	if path == "" {
+		return nil, fmt.Errorf("%s is not set", envKey)
+	}
+
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read public key failed (%s): %w", path, err)
+	}
+
+	pub, err := jwt.ParseRSAPublicKeyFromPEM(b)
+	if err != nil {
+		return nil, fmt.Errorf("parse public key pem failed (%s): %w", path, err)
+	}
+
+	return pub, nil
+}
+
+// LoadRSAPrivateKeyFromPathEnv reads an RSA private key PEM (PKCS#1 or PKCS#8) from a file path stored in an env var.
+func LoadRSAPrivateKeyFromPathEnv(envKey string) (*rsa.PrivateKey, error) {
+	path := strings.TrimSpace(os.Getenv(envKey))
+	if path == "" {
+		return nil, fmt.Errorf("%s is not set", envKey)
+	}
+
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read private key failed (%s): %w", path, err)
+	}
+
+	priv, err := jwt.ParseRSAPrivateKeyFromPEM(b)
+	if err != nil {
+		return nil, fmt.Errorf("parse private key pem failed (%s): %w", path, err)
+	}
+
+	return priv, nil
 }
 
 func ParseAndValidateRS256(tokenString string, pub *rsa.PublicKey) (*Claims, error) {

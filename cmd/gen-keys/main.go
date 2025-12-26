@@ -8,9 +8,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/ETAnderson/conductor/internal/config"
 )
 
 func main() {
+	config.LoadDotEnv()
 	outDir := "./secrets"
 	if len(os.Args) > 1 {
 		outDir = os.Args[1]

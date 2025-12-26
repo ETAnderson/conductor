@@ -18,8 +18,13 @@ type Config struct {
 	RunMigrations bool `env:"RUN_MIGRATIONS" default:"false"`
 }
 
-func Load() Config {
+func LoadDotEnv() {
+	// Loads .env into the process environment.
+	// No-op if the file doesn't exist; does not override existing env vars.
 	_ = godotenv.Load()
+}
+
+func Load() Config {
 	cfg := Config{
 		Env:           getenv("ENV", "dev"),
 		Port:          getenv("PORT", "8080"),

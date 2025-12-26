@@ -20,6 +20,7 @@ import (
 )
 
 func main() {
+	config.LoadDotEnv()
 	cfg := config.Load()
 
 	logger := logging.NewStdLogger("api-service ")
@@ -44,7 +45,7 @@ func main() {
 
 	// Load RS256 public key for JWT verification.
 	// In dev, allow missing key so you can keep using X-Tenant-ID + debug flows.
-	pub, err := auth.LoadRSAPublicKeyFromEnv("JWT_PUBLIC_KEY_PEM")
+	pub, err := auth.LoadRSAPublicKeyFromPathEnv("JWT_PUBLIC_KEY_PATH")
 	if err != nil {
 		if cfg.Env != "dev" {
 			logger.Printf("JWT public key load failed: %v", err)
@@ -69,8 +70,8 @@ func main() {
 	// Dev bootstrap: ensure debug tenant exists so FK inserts succeed for runs/idempotency.
 	if factoryRes.DB != nil && cfg.Env == "dev" {
 		_, err := factoryRes.DB.Exec(`INSERT INTO tenants (tenant_id, name)
-VALUES (1, 'debug')
-ON DUPLICATE KEY UPDATE name=VALUES(name)`)
+		VALUES (1, 'debug')
+		ON DUPLICATE KEY UPDATE name=VALUES(name)`)
 		if err != nil {
 			logger.Printf("bootstrap tenant failed: %v", err)
 			os.Exit(1)
