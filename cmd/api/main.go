@@ -130,7 +130,7 @@ ON DUPLICATE KEY UPDATE name=VALUES(name)`)
 	mux.Handle("/v1/debug/runs", handlers.DebugRunsHandler{
 		Store: store,
 	})
-	mux.Handle("/v1/debug/runs/", handlers.DebugRunsHandler{
+	mux.Handle("/v1/debug/runs/", handlers.DebugRunSubroutesHandler{
 		Store: store,
 	})
 

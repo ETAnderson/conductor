@@ -37,6 +37,22 @@ func (h DebugRunChannelsHandler) ServeHTTP(w http.ResponseWriter, r *http.Reques
 	}
 	runID := parts[0]
 
+	_, ok, err := h.Store.GetRun(r.Context(), tenantID, runID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{
+			"error":   "get_run_failed",
+			"message": err.Error(),
+		})
+		return
+	}
+	if !ok {
+		writeJSON(w, http.StatusNotFound, map[string]any{
+			"error":   "not_found",
+			"message": "run not found",
+		})
+		return
+	}
+
 	items, err := h.Store.ListRunChannelResults(r.Context(), tenantID, runID)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{
